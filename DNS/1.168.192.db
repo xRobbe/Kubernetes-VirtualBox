@@ -1,0 +1,18 @@
+@   IN  SOA     primary.rodenhausen.dev. root.rodenhausen.dev. (
+                                                1001    ;Serial
+                                                3H      ;Refresh
+                                                15M     ;Retry
+                                                1W      ;Expire
+                                                1D      ;Minimum TTL
+                                                )
+
+;Name Server Information
+@ IN  NS      primary.rodenhausen.dev.
+
+;Reverse lookup for Name Server
+8        IN  PTR     primary.rodenhausen.dev.
+
+;PTR Record IP address to HostName
+11      IN  PTR     kube01.rodenhausen.dev.
+12      IN  PTR     kube02.rodenhausen.dev.
+13      IN  PTR     kube03.rodenhausen.dev.
