@@ -52,9 +52,9 @@ VBoxManage modifyvm "${VMNAME}" --audio none
 VBoxManage modifyvm "${VMNAME}" --rtcuseutc on
 
 # Create host only interface
-VBoxManage modifyvm "${VMNAME}" --nic1 hostonly --nictype1 82540EM --hostonlyadapter1 "${HONETWORK}" --cableconnected1 on
+#VBoxManage modifyvm "${VMNAME}" --nic1 hostonly --nictype1 82540EM --hostonlyadapter1 "${HONETWORK}" --cableconnected1 on
 # Create brdige adapter
-VBoxManage modifyvm "${VMNAME}" --nic2 bridged --nictype2 82540EM --bridgeadapter2 "${BNETWORK}" --cableconnected2 on
+VBoxManage modifyvm "${VMNAME}" --nic1 bridged --nictype1 82540EM --bridgeadapter1 "${BNETWORK}" --cableconnected1 on --macaddress1 00AFFEAFFE00
 
 # Configure unattended installation
 VBoxManage unattended install "${VMNAME}" --iso "${ISOPATH}" --user "${VMUSER}" --full-user-name "${VMUSER}" --password-file "${VMPASSFILE}" \
@@ -74,7 +74,7 @@ VBoxManage guestcontrol "${VMNAME}" run --username root --passwordfile "${VMPASS
 # Enable hostonly network interface
 VBoxManage guestcontrol "${VMNAME}" run --username root --passwordfile "${VMPASSFILE}" -- /sbin/ifup enp0s3
 # Enable bridge network interface
-VBoxManage guestcontrol "${VMNAME}" run --username root --passwordfile "${VMPASSFILE}" -- /sbin/ifup enp0s8
+# VBoxManage guestcontrol "${VMNAME}" run --username root --passwordfile "${VMPASSFILE}" -- /sbin/ifup enp0s8
 
 sleep 30
 
@@ -147,17 +147,27 @@ sed -ie '/swap/s/^/#/' /etc/fstab
 EOF
 
 # Network settings
+# ssh root@${VMIP} -i vm.key -o "StrictHostKeyChecking no" <<EOF 
+# sed -ie 's|ONBOOT=no|ONBOOT=yes|' /etc/sysconfig/network-scripts/ifcfg-enp0s3
+# sed -ie 's|BOOTPROTO=dhcp|BOOTPROTO=none|' /etc/sysconfig/network-scripts/ifcfg-enp0s3
+# echo "IPADDR=10.0.0.2" >> /etc/sysconfig/network-scripts/ifcfg-enp0s3
+# echo "NETMASK=255.255.255.0" >> /etc/sysconfig/network-scripts/ifcfg-enp0s3
+
+# sed -ie 's|ONBOOT=no|ONBOOT=yes|' /etc/sysconfig/network-scripts/ifcfg-enp0s8
+
+# echo "10.0.0.2 kube01 kube01.rodenhausen.dev" >> /etc/hosts
+# echo "10.0.0.3 kube02 kube02.rodenhausen.dev" >> /etc/hosts
+# echo "10.0.0.4 kube03 kube03.rodenhausen.dev" >> /etc/hosts
+
+# shutdown -r now 
+EOF
+
 ssh root@${VMIP} -i vm.key -o "StrictHostKeyChecking no" <<EOF 
 sed -ie 's|ONBOOT=no|ONBOOT=yes|' /etc/sysconfig/network-scripts/ifcfg-enp0s3
-sed -ie 's|BOOTPROTO=dhcp|BOOTPROTO=none|' /etc/sysconfig/network-scripts/ifcfg-enp0s3
-echo "IPADDR=10.0.0.2" >> /etc/sysconfig/network-scripts/ifcfg-enp0s3
-echo "NETMASK=255.255.255.0" >> /etc/sysconfig/network-scripts/ifcfg-enp0s3
 
-sed -ie 's|ONBOOT=no|ONBOOT=yes|' /etc/sysconfig/network-scripts/ifcfg-enp0s8
-
-echo "10.0.0.2 kube01 kube01.rodenhausen.dev" >> /etc/hosts
-echo "10.0.0.3 kube02 kube02.rodenhausen.dev" >> /etc/hosts
-echo "10.0.0.4 kube03 kube03.rodenhausen.dev" >> /etc/hosts
+echo "192.168.1.11 kube01 kube01.rodenhausen.dev" >> /etc/hosts
+echo "192.168.1.12 kube02 kube02.rodenhausen.dev" >> /etc/hosts
+echo "192.168.1.13 kube03 kube03.rodenhausen.dev" >> /etc/hosts
 
 shutdown -r now 
 EOF
@@ -172,24 +182,40 @@ until VBoxManage guestcontrol "${VMNAME}" run --username root --passwordfile "${
 done
 
 # Wait some time to allow all services to start up
-sleep 180
+sleep 120
 
 # Get IP again in case it changed
 VMIP=$(VBoxManage guestproperty get "${VMNAME}" "/VirtualBox/GuestInfo/Net/0/V4/IP" | awk '{ print $2 }')
 
-ssh -o "StrictHostKeyChecking no" -i vm.key root@10.0.0.2 kubeadm init --apiserver-advertise-address 10.0.0.2 --pod-network-cidr=10.1.0.0/16
+ssh -o "StrictHostKeyChecking no" -i vm.key root@192.168.1.11 "kubeadm init --apiserver-advertise-address 192.168.1.11 --pod-network-cidr=10.0.0.0/16"
 
-ssh root@${VMIP} -i vm.key -o "StrictHostKeyChecking no" <<EOF 
+# Wait for Kubernetes to start
+sleep 150
+
+ssh root@${VMIP} -i vm.key -o "StrictHostKeyChecking no" <<EOF
 mkdir -p $HOME/.kube
 cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 chown $(id -u):$(id -g) $HOME/.kube/config
 
 kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
-kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml
+
 systemctl restart docker && systemctl restart kubelet
 EOF
 
-scp -r root@10.0.0.2:/root/.kube .kube
+# kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml
+# kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+
+scp -r root@192.168.1.11:/root/.kube .kube
+
+ssh root@${VMIP} -i vm.key -o "StrictHostKeyChecking no" <<EOF
+yum install -y nfs-utils
+mkdir -p /var/srv/gitbucket/mariadb
+mkdir -p /var/srv/gitbucket/gitbucket
+echo "/var/srv/gitbucket/mariadb 192.168.1.0/255.255.255.0(sync,rw,no_root_squash) 10.0.0.0/255.255.0.0(sync,rw,no_root_squash)" >> /etc/exports
+echo "/var/srv/gitbucket/gitbucket 192.168.1.0/255.255.255.0(sync,rw,no_root_squash) 10.0.0.0/255.255.0.0(sync,rw,no_root_squash)" >> /etc/exports
+systemctl enable nfs --now
+EOF
+
 
 # Enable USB 1.1
 ## VBoxManage modifyvm "${VMNAME}" --usbohci on

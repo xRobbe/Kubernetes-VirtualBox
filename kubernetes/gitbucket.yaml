@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata: 
+  name: gitbucket-mariadb-pv-volume
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  nfs:
+    path: /var/srv/gitbucket/mariadb
+    server: kube01.rodenhausen.dev
+    readOnly: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: 
+  name: gitbucket-mariadb-pv-claim
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata: 
+  name: gitbucket-mariadb
+spec:
+  selector:
+    app: gitbucket-mariadb
+  type: NodePort
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+      nodePort: 30306
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitbucket-mariadb
+spec:
+  selector:
+    matchLabels:
+      app: gitbucket-mariadb
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: gitbucket-mariadb
+    spec:
+      containers:
+      - image: mariadb:latest
+        name: mariadb
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: schnitzel
+        ports:
+        - containerPort: 3306
+          name: mariadb
+        volumeMounts:
+        - name: gitbucket-mariadb-persistent-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: gitbucket-mariadb-persistent-storage
+        persistentVolumeClaim:
+          claimName: gitbucket-mariadb-pv-claim
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          effect: "NoSchedule"
+          operator: "Exists"

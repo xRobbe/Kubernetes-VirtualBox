@@ -52,9 +52,10 @@ VBoxManage modifyvm "${VMNAME}" --audio none
 VBoxManage modifyvm "${VMNAME}" --rtcuseutc on
 
 # Create host only interface
-VBoxManage modifyvm "${VMNAME}" --nic1 hostonly --nictype1 82540EM --hostonlyadapter1 "${HONETWORK}" --cableconnected1 on
+# VBoxManage modifyvm "${VMNAME}" --nic1 hostonly --nictype1 82540EM --hostonlyadapter1 "${HONETWORK}" --cableconnected1 on
 # Create brdige adapter
-VBoxManage modifyvm "${VMNAME}" --nic2 bridged --nictype2 82540EM --bridgeadapter2 "${BNETWORK}" --cableconnected2 on
+# VBoxManage modifyvm "${VMNAME}" --nic2 bridged --nictype2 82540EM --bridgeadapter2 "${BNETWORK}" --cableconnected2 on
+VBoxManage modifyvm "${VMNAME}" --nic1 bridged --nictype1 82540EM --bridgeadapter1 "${BNETWORK}" --cableconnected1 on --macaddress1 00AFFEAFFE02
 
 # Configure unattended installation
 VBoxManage unattended install "${VMNAME}" --iso "${ISOPATH}" --user "${VMUSER}" --full-user-name "${VMUSER}" --password-file "${VMPASSFILE}" \
@@ -149,15 +150,10 @@ EOF
 # Network settings
 ssh root@${VMIP} -i vm.key -o "StrictHostKeyChecking no" <<EOF 
 sed -ie 's|ONBOOT=no|ONBOOT=yes|' /etc/sysconfig/network-scripts/ifcfg-enp0s3
-sed -ie 's|BOOTPROTO=dhcp|BOOTPROTO=none|' /etc/sysconfig/network-scripts/ifcfg-enp0s3
-echo "IPADDR=10.0.0.4" >> /etc/sysconfig/network-scripts/ifcfg-enp0s3
-echo "NETMASK=255.255.255.0" >> /etc/sysconfig/network-scripts/ifcfg-enp0s3
 
-sed -ie 's|ONBOOT=no|ONBOOT=yes|' /etc/sysconfig/network-scripts/ifcfg-enp0s8
-
-echo "10.0.0.2 kube01 kube01.rodenhausen.dev" >> /etc/hosts
-echo "10.0.0.3 kube02 kube02.rodenhausen.dev" >> /etc/hosts
-echo "10.0.0.4 kube03 kube03.rodenhausen.dev" >> /etc/hosts
+echo "192.168.1.11 kube01 kube01.rodenhausen.dev" >> /etc/hosts
+echo "192.168.1.12 kube02 kube02.rodenhausen.dev" >> /etc/hosts
+echo "192.168.1.13 kube03 kube03.rodenhausen.dev" >> /etc/hosts
 
 shutdown -r now 
 EOF
@@ -177,10 +173,14 @@ sleep 180
 # Get IP again in case it changed
 VMIP=$(VBoxManage guestproperty get "${VMNAME}" "/VirtualBox/GuestInfo/Net/0/V4/IP" | awk '{ print $2 }')
 
-JOINCOMMAND=$(ssh -o "StrictHostKeyChecking no" -i vm.key root@10.0.0.2 kubeadm token create --print-join-command)
-ssh -o "StrictHostKeyChecking no" -i vm.key root@10.0.0.4 ${JOINCOMMAND}
+JOINCOMMAND=$(ssh -o "StrictHostKeyChecking no" -i vm.key root@192.168.1.11 kubeadm token create --print-join-command)
+ssh -o "StrictHostKeyChecking no" -i vm.key root@192.168.1.13 ${JOINCOMMAND}
 
-scp -r .kube root@10.0.0.4:/root/.kube
+scp -r .kube root@192.168.1.13:/root/.kube
+
+ssh root@${VMIP} -i vm.key -o "StrictHostKeyChecking no" <<EOF
+yum install -y nfs-utils
+EOF
 
 # Enable USB 1.1
 ## VBoxManage modifyvm "${VMNAME}" --usbohci on
